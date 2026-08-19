@@ -242,7 +242,9 @@ async function setupDAWWorkspace(songData) {
   detectedBeats = songData.beats || [];
 
   // SINCRONIZACIÓN AUTOMÁTICA DE FASE CON LOS BEATS REALES DE LA BATERÍA
-  if (detectedBeats.length > 0) {
+  if (songData.offset !== undefined && songData.offset !== null) {
+    currentOffset = parseFloat(songData.offset);
+  } else if (detectedBeats.length > 0) {
     const secondsPerBeat = 60.0 / currentBPM;
     // Calculamos el desfase módulo período para cada beat y obtenemos la mediana
     const phases = detectedBeats.map(b => ((b % secondsPerBeat) + secondsPerBeat) % secondsPerBeat);

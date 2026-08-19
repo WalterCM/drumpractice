@@ -78,6 +78,7 @@ class AudioProcessor:
                 "no_drums_audio_path": no_drums_wav,
                 "drums_audio_path": drums_wav if os.path.exists(drums_wav) else None,
                 "bpm": tempo_data["bpm"],
+                "offset": tempo_data.get("offset", 0.0),
                 "beats": tempo_data["beats"]
             }
             
@@ -121,6 +122,7 @@ class AudioProcessor:
                 "no_drums_audio_path": no_drums_wav,
                 "drums_audio_path": drums_wav if os.path.exists(drums_wav) else None,
                 "bpm": tempo_data["bpm"],
+                "offset": tempo_data.get("offset", 0.0),
                 "beats": tempo_data["beats"]
             }
             

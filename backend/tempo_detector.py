@@ -6,12 +6,14 @@ import os
 def analyze_tempo(audio_path: str) -> dict:
     """
     Analiza un archivo de audio usando Librosa.
-    Estima el BPM global (tempo) y los timestamps (en segundos) de los beats detectados.
+    Estima el BPM global continuo y el offset de sincronización óptimo
+    a partir de regresión lineal sobre los transitorios de la batería.
     
     Devuelve un diccionario:
     {
-        "bpm": float,
-        "beats": [float]  # lista de tiempos en segundos
+        "bpm": float,       # BPM continuo exacto (ej. 198.0)
+        "offset": float,    # Desfase en segundos para alinear el metrónomo (ej. 0.0942)
+        "beats": [float]    # lista de tiempos en segundos
     }
     """
     if not os.path.exists(audio_path):
@@ -27,7 +29,6 @@ def analyze_tempo(audio_path: str) -> dict:
     print("Estimando tempo con múltiples candidatos...")
     
     # Obtener candidatos de tempo con ac_size grande para mejor resolución
-    # librosa.feature.tempo devuelve los candidatos ordenados por probabilidad
     tempo_candidates = librosa.feature.tempo(
         onset_envelope=onset_env, sr=sr,
         aggregate=None,  # devolver todos los candidatos por frame
@@ -36,14 +37,12 @@ def analyze_tempo(audio_path: str) -> dict:
     )
     
     # Calcular el tempo global como la mediana de los candidatos por frame
-    # Esto nos da el tempo más frecuente a lo largo de la canción
     global_tempo = float(np.median(tempo_candidates))
     
     # Resolver ambigüedad de octava:
-    # Si el tempo está entre 80-110, verificar si el doble (160-220) tiene soporte
+    # Si el tempo está entre 70-115, verificar si el doble (140-230) tiene soporte
     # Calculamos la densidad de onsets para determinar si el tempo real es el doble
     if 70 < global_tempo < 115:
-        # Contar la distancia media entre picos de onset
         peaks = librosa.util.peak_pick(
             onset_env, pre_max=3, post_max=3, 
             pre_avg=3, post_avg=5, delta=0.5, wait=5
@@ -60,28 +59,43 @@ def analyze_tempo(audio_path: str) -> dict:
                 print(f"  Resolviendo ambigüedad de octava: {global_tempo:.1f} -> {double_tempo:.1f} BPM")
                 global_tempo = double_tempo
     
-    bpm = round(global_tempo, 2)
+    initial_bpm = round(global_tempo, 2)
+    print(f"Tempo inicial estimado: {initial_bpm} BPM. Calculando beat tracking...")
     
-    print(f"Tempo estimado: {bpm} BPM. Calculando beat tracking...")
-    
-    # Ejecutar beat_track con el BPM correcto como pista (start_bpm)
-    # Esto fuerza al algoritmo de programación dinámica a buscar beats
-    # con el período correcto en lugar del default de 120 BPM
+    # Ejecutar beat_track con el BPM como guía (start_bpm)
     tempo_result, beat_frames = librosa.beat.beat_track(
         onset_envelope=onset_env, sr=sr,
-        start_bpm=bpm,
+        start_bpm=initial_bpm,
         units='frames'
     )
     
     # Convertir frames de beats a tiempo en segundos
     beat_times = librosa.frames_to_time(beat_frames, sr=sr)
     
+    # Refinamiento continuo del BPM y cálculo de fase de inicio mediante regresión lineal
+    # Esto elimina el error de cuantización de los bins discretos de Librosa (ej: 198.77 -> 198.00)
+    if len(beat_times) >= 4:
+        x = np.arange(len(beat_times))
+        y = np.array(beat_times)
+        m, c = np.polyfit(x, y, 1)  # m = segundos por beat, c = tiempo t0 estimado
+        
+        refined_bpm = 60.0 / m
+        refined_offset = (c % m + m) % m  # desfase de fase [0, m)
+        
+        bpm = round(float(refined_bpm), 2)
+        offset = round(float(refined_offset), 4)
+        print(f"  BPM refinado por regresión: {bpm} BPM (offset = {round(offset*1000, 1)} ms)")
+    else:
+        bpm = initial_bpm
+        offset = round(float(beat_times[0] % (60.0 / bpm)), 4) if len(beat_times) > 0 else 0.0
+    
     beats_list = [round(float(t), 4) for t in beat_times]
     
-    print(f"Análisis completado: BPM estimado = {bpm}, Beats detectados = {len(beats_list)}")
+    print(f"Análisis completado: BPM={bpm}, Offset={offset}s, Beats={len(beats_list)}")
     
     return {
         "bpm": bpm,
+        "offset": offset,
         "beats": beats_list
     }
 
