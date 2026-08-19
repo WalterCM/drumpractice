@@ -958,3 +958,245 @@ function formatTimeShort(seconds) {
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
+
+// ==========================================================================
+// EXPORTACIÓN DE MEZCLA A ARCHIVO WAV (OFFLINE AUDIO CONTEXT)
+// ==========================================================================
+const btnExportWav = document.getElementById('btn-export-wav');
+
+if (btnExportWav) {
+  btnExportWav.addEventListener('click', async () => {
+    if (!musicBuffer) {
+      alert("No hay ninguna pista de audio cargada para exportar.");
+      return;
+    }
+
+    const originalHtml = btnExportWav.innerHTML;
+    btnExportWav.disabled = true;
+    btnExportWav.innerHTML = `
+      <svg class="spin-icon" viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
+        <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/>
+      </svg>
+      <span>Renderizando...</span>
+    `;
+
+    try {
+      // 1. Configurar contexto offline a la tasa de muestreo del audio original
+      const sampleRate = musicBuffer.sampleRate || 44100;
+      const numChannels = 2; // Stereo
+      const totalFrames = Math.ceil(songDuration * sampleRate);
+      
+      const offlineCtx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(
+        numChannels,
+        totalFrames,
+        sampleRate
+      );
+
+      // 2. Calcular ganancias efectivas según los sliders, Mute y Solo
+      const anySolo = tracks.music.solo || tracks.drums.solo || tracks.metronome.solo;
+      function getEffectiveGain(t) {
+        if (anySolo) {
+          return (t.solo && !t.mute) ? t.vol : 0;
+        } else {
+          return !t.mute ? t.vol : 0;
+        }
+      }
+
+      const musicGainVal = getEffectiveGain(tracks.music);
+      const drumsGainVal = getEffectiveGain(tracks.drums);
+      const metroGainVal = getEffectiveGain(tracks.metronome);
+
+      // 3. Pista de Música
+      if (musicGainVal > 0 && musicBuffer) {
+        const musicSource = offlineCtx.createBufferSource();
+        musicSource.buffer = musicBuffer;
+        const musicGain = offlineCtx.createGain();
+        musicGain.gain.setValueAtTime(musicGainVal, 0);
+        musicSource.connect(musicGain);
+        musicGain.connect(offlineCtx.destination);
+        musicSource.start(0);
+      }
+
+      // 4. Pista de Batería
+      if (drumsGainVal > 0 && drumsBuffer) {
+        const drumsSource = offlineCtx.createBufferSource();
+        drumsSource.buffer = drumsBuffer;
+        const drumsGain = offlineCtx.createGain();
+        drumsGain.gain.setValueAtTime(drumsGainVal, 0);
+        drumsSource.connect(drumsGain);
+        drumsGain.connect(offlineCtx.destination);
+        drumsSource.start(0);
+      }
+
+      // 5. Metrónomo sintetizado idéntico a la reproducción
+      if (metroGainVal > 0 && currentBPM > 0) {
+        const metroMasterGain = offlineCtx.createGain();
+        metroMasterGain.gain.setValueAtTime(metroGainVal, 0);
+        metroMasterGain.connect(offlineCtx.destination);
+
+        const secondsPerBeat = 60.0 / currentBPM;
+        let beatTime = currentOffset;
+        let index = 0;
+
+        while (beatTime < songDuration) {
+          if (beatTime >= 0) {
+            const isAccent = (index % 4 === 0);
+            scheduleOfflineClick(offlineCtx, metroMasterGain, beatTime, isAccent, metronomeSound.value);
+          }
+          beatTime += secondsPerBeat;
+          index++;
+        }
+      }
+
+      // 6. Renderizado ultra-rápido offline
+      const renderedAudioBuffer = await offlineCtx.startRendering();
+
+      // 7. Codificación a WAV 16-bit PCM Stereo
+      const wavArrayBuffer = encodeWAV(renderedAudioBuffer);
+      const blob = new Blob([wavArrayBuffer], { type: 'audio/wav' });
+
+      // 8. Disparar descarga en el navegador
+      const safeTitle = (songTitleStr || 'Pista').replace(/[^a-zA-Z0-9_\-\s]/g, '').trim().replace(/\s+/g, '_');
+      const filename = `${safeTitle}_drum_practice_${Math.round(currentBPM)}bpm.wav`;
+
+      const downloadUrl = URL.createObjectURL(blob);
+      const downloadLink = document.createElement('a');
+      downloadLink.href = downloadUrl;
+      downloadLink.download = filename;
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      
+      setTimeout(() => {
+        document.body.removeChild(downloadLink);
+        URL.revokeObjectURL(downloadUrl);
+      }, 2000);
+
+      btnExportWav.innerHTML = `
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+        <span>¡Guardado!</span>
+      `;
+      setTimeout(() => {
+        btnExportWav.disabled = false;
+        btnExportWav.innerHTML = originalHtml;
+      }, 2000);
+
+    } catch (err) {
+      console.error("Error al exportar WAV:", err);
+      alert("Error al exportar WAV: " + err.message);
+      btnExportWav.disabled = false;
+      btnExportWav.innerHTML = originalHtml;
+    }
+  });
+}
+
+// Sintetizador de clicks para OfflineAudioContext
+function scheduleOfflineClick(ctx, targetGainNode, time, isAccent, soundType) {
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.connect(gain);
+  gain.connect(targetGainNode);
+
+  const duration = 0.07;
+
+  if (soundType === 'woodblock') {
+    const freq = isAccent ? 1200 : 800;
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(freq, time);
+    osc.frequency.exponentialRampToValueAtTime(120, time + duration);
+    gain.gain.setValueAtTime(1.0, time);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + duration);
+  } else if (soundType === 'cowbell') {
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(isAccent ? 800 : 587, time);
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.type = 'triangle';
+    osc2.frequency.setValueAtTime(isAccent ? 1200 : 845, time);
+    osc2.connect(gain2);
+    gain2.connect(targetGainNode);
+    gain.gain.setValueAtTime(0.7, time);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + duration);
+    gain2.gain.setValueAtTime(0.4, time);
+    gain2.gain.exponentialRampToValueAtTime(0.001, time + duration);
+    osc2.start(time);
+    osc2.stop(time + duration);
+  } else if (soundType === 'digital') {
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(isAccent ? 1600 : 1000, time);
+    gain.gain.setValueAtTime(1.0, time);
+    gain.gain.linearRampToValueAtTime(0.001, time + 0.03);
+  } else {
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(isAccent ? 880 : 440, time);
+    gain.gain.setValueAtTime(0.8, time);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.08);
+  }
+
+  osc.start(time);
+  osc.stop(time + duration + 0.02);
+}
+
+// Codificador WAV 16-bit PCM Stereo Lossless
+function encodeWAV(audioBuffer) {
+  const numChannels = audioBuffer.numberOfChannels;
+  const sampleRate = audioBuffer.sampleRate;
+  const format = 1; // PCM
+  const bitDepth = 16;
+  
+  const bytesPerSample = bitDepth / 8;
+  const blockAlign = numChannels * bytesPerSample;
+  
+  const length = audioBuffer.length;
+  const dataSize = length * blockAlign;
+  const headerSize = 44;
+  const totalSize = headerSize + dataSize;
+  
+  const arrayBuffer = new ArrayBuffer(totalSize);
+  const view = new DataView(arrayBuffer);
+  
+  function writeString(offset, str) {
+    for (let i = 0; i < str.length; i++) {
+      view.setUint8(offset + i, str.charCodeAt(i));
+    }
+  }
+
+  // RIFF Header
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(8, 'WAVE');
+  
+  // "fmt " Sub-chunk
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, format, true);
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * blockAlign, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitDepth, true);
+  
+  // "data" Sub-chunk
+  writeString(36, 'data');
+  view.setUint32(40, dataSize, true);
+  
+  // Intercalar canales y escribir muestras de 16-bit PCM
+  const channelData = [];
+  for (let ch = 0; ch < numChannels; ch++) {
+    channelData.push(audioBuffer.getChannelData(ch));
+  }
+  
+  let offset = 44;
+  for (let i = 0; i < length; i++) {
+    for (let ch = 0; ch < numChannels; ch++) {
+      let sample = channelData[ch][i];
+      // Clamping [-1.0, 1.0]
+      sample = Math.max(-1.0, Math.min(1.0, sample));
+      // Escalar a entero de 16 bits firmado
+      const int16Sample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+      view.setInt16(offset, int16Sample, true);
+      offset += 2;
+    }
+  }
+  
+  return arrayBuffer;
+}

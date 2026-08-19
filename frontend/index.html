@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=2.4">
+  <link rel="stylesheet" href="styles.css?v=2.5">
 </head>
 <body>
   <div class="app-container">
@@ -124,10 +124,16 @@
             <span class="drag-hint">💡 Arrastra la pista del metrónomo para sincronizar</span>
           </div>
 
-          <!-- Nueva Canción -->
-          <button id="btn-new-song" class="new-song-btn" title="Cargar otra pista">
-            + Nueva Pista
-          </button>
+          <!-- Acciones de Proyecto: Exportar WAV & Nueva Pista -->
+          <div class="project-actions-group">
+            <button id="btn-export-wav" class="export-wav-btn" title="Guardar mezcla actual en archivo WAV">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/></svg>
+              <span>Guardar WAV</span>
+            </button>
+            <button id="btn-new-song" class="new-song-btn" title="Cargar otra pista">
+              + Nueva Pista
+            </button>
+          </div>
 
         </div>
 
@@ -235,6 +241,6 @@
     </main>
   </div>
   
-  <script src="app.js?v=2.4"></script>
+  <script src="app.js?v=2.5"></script>
 </body>
 </html>
