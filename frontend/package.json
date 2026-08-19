@@ -1,0 +1,15 @@
+{
+  "name": "drum-practice-tool",
+  "version": "1.0.0",
+  "description": "Una herramienta de practica para bateristas con metronomo sincronizado y remocion de bateria por IA.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "wavesurfer.js": "^7.8.15"
+  },
+  "devDependencies": {
+    "electron": "^31.3.0"
+  }
+}

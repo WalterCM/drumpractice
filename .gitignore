@@ -1,0 +1,61 @@
+# Entornos Virtuales de Python
+venv/
+backend/venv/
+.venv/
+env/
+ENV/
+
+# Archivos compilados y temporales de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Datos, descargas y archivos de audio procesados
+backend/data/
+backend/downloads/
+backend/separated/
+backend/data_test/
+backend/data_local_test/
+*.wav
+*.mp3
+*.mp4
+*.m4a
+*.flac
+*.ogg
+*.opus
+synthetic_beat.wav
+
+# Pesos y modelos de IA
+*.pt
+*.th
+*.ckpt
+*.bin
+*.onnx
+models/
+
+# Node.js y Frontend
+node_modules/
+frontend/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# Empaquetado y builds
+dist/
+build/
+out/
+*.exe
+*.AppImage
+*.deb
+
+# Logs y archivos del sistema
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

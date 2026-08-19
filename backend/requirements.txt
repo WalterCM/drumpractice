@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+yt-dlp
+demucs
+librosa
+soundfile
+numpy
+python-multipart
+websockets
