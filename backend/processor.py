@@ -62,10 +62,13 @@ class AudioProcessor:
             drums_wav = os.path.join(self.processed_dir, f"{base_name}_drums.wav")
             
             if progress_callback:
-                progress_callback("Audio separado. Analizando BPM y ritmo...", 80)
+                progress_callback("Audio separado. Analizando BPM y ritmo sobre la pista de batería...", 80)
                 
             # 3. Analizar tempo
-            tempo_data = analyze_tempo(no_drums_wav)
+            # Usamos la pista de batería aislada (o el audio original si no hay batería)
+            # ya que los transitorios de ataque de bombos y cajas proporcionan el Onset Flux más nítido
+            audio_for_tempo = drums_wav if (drums_wav and os.path.exists(drums_wav)) else original_wav
+            tempo_data = analyze_tempo(audio_for_tempo)
             
             # Formatear la respuesta
             result = {
@@ -108,10 +111,8 @@ class AudioProcessor:
             no_drums_wav = separate_drums(audio_file_path, self.processed_dir)
             drums_wav = os.path.join(self.processed_dir, f"{base_name}_drums.wav")
             
-            if progress_callback:
-                progress_callback("Audio separado. Analizando BPM y ritmo...", 80)
-                
-            tempo_data = analyze_tempo(no_drums_wav)
+            audio_for_tempo = drums_wav if (drums_wav and os.path.exists(drums_wav)) else audio_file_path
+            tempo_data = analyze_tempo(audio_for_tempo)
             
             result = {
                 "id": base_name,

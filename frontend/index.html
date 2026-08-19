@@ -3,52 +3,55 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Drum Practice Tool</title>
+  <title>Drum Practice</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
-  <!-- Cargar WaveSurfer local de node_modules -->
-  <script src="node_modules/wavesurfer.js/dist/wavesurfer.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=2.3">
 </head>
 <body>
   <div class="app-container">
     
     <!-- Header -->
     <header class="app-header">
-      <div class="logo">
-        <span class="logo-accent">DRUM</span>PRACTICE
+      <div class="logo-area">
+        <div class="logo">
+          <span class="logo-accent">DRUM</span>PRACTICE
+        </div>
       </div>
+
+      <div class="header-center">
+        <span id="current-song-badge" class="song-badge hidden">Canción</span>
+      </div>
+
       <div class="status-indicator">
         <span class="status-dot disconnected" id="backend-status-dot"></span>
-        <span id="backend-status-text">Desconectado del Backend</span>
+        <span id="backend-status-text">Conectando...</span>
       </div>
     </header>
 
     <!-- Main Content -->
     <main class="app-main">
       
-      <!-- YouTube Downloader Input Section -->
+      <!-- Pantalla Inicial de Carga / Setup -->
       <section class="section downloader-section" id="setup-section">
         <div class="glass-card instruction-card">
-          <h1>Prepara tu pista de practica</h1>
-          <p>Pega un enlace de YouTube para remover automaticamente la bateria y generar una rejilla de metronomo inteligente y editable en local.</p>
+          <h1>Tu Estudio de Práctica</h1>
+          <p>Extrae canciones de YouTube o sube tus archivos de audio para separar la batería y practicar con metrónomo sincronizado en un editor multipista.</p>
           
           <div class="input-group">
             <input type="text" id="youtube-url" placeholder="https://www.youtube.com/watch?v=..." />
             <button id="process-btn" disabled>Procesar Pista</button>
           </div>
 
-          <div style="margin: 1rem 0; display: flex; align-items: center; justify-content: center; gap: 0.75rem;">
-            <div style="height: 1px; flex: 1; background: var(--card-border);"></div>
-            <span style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase;">ó</span>
-            <div style="height: 1px; flex: 1; background: var(--card-border);"></div>
+          <div class="divider-or">
+            <span>ó</span>
           </div>
 
-          <div style="display: flex; justify-content: center;">
+          <div class="upload-btn-container">
             <input type="file" id="local-audio-input" accept="audio/*" class="hidden" />
-            <button type="button" id="btn-browse-file" style="background: rgba(255,255,255,0.05); border: 1px dashed var(--accent-orange); color: var(--text-main); padding: 0.65rem 1.25rem; border-radius: 8px; font-family: inherit; font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
-              📁 Seleccionar archivo de audio local (MP3/WAV)
+            <button type="button" id="btn-browse-file" class="browse-file-btn">
+              📁 Seleccionar archivo local (MP3 / WAV)
             </button>
           </div>
           
@@ -65,126 +68,164 @@
         </div>
       </section>
 
-      <!-- Suite de Edicion (Oculta al inicio) -->
-      <section class="section player-section hidden" id="workspace-section">
+      <!-- Suite de Edición / DAW Workspace (Oculta al inicio) -->
+      <section class="section daw-workspace hidden" id="workspace-section">
         
-        <div class="workspace-grid">
+        <!-- Barra de Transporte Superior -->
+        <div class="glass-card transport-bar">
           
-          <!-- Panel Izquierdo: Controles de Audio y Visualizador -->
-          <div class="panel main-panel">
+          <!-- Controles de Reproducción -->
+          <div class="transport-group">
+            <button id="btn-stop" class="transport-btn" title="Detener (Enter / Return)">
+              <svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>
+            </button>
+            <button id="btn-play-pause" class="transport-btn play" title="Reproducir / Pausar (Espacio)">
+              <svg viewBox="0 0 24 24" id="play-icon"><path d="M8 5v14l11-7z"/></svg>
+              <svg viewBox="0 0 24 24" id="pause-icon" class="hidden"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+            </button>
+            <button id="btn-loop" class="transport-btn toggle" title="Repetición (Loop)">
+              <svg viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
+            </button>
+          </div>
+
+          <!-- Display Digital de Tiempo -->
+          <div class="time-display-box">
+            <span id="time-current">00:00.00</span>
+            <span class="time-divider">/</span>
+            <span id="time-total">00:00.00</span>
+          </div>
+
+          <!-- Controles de BPM & Tempo -->
+          <div class="bpm-control-box">
+            <div class="bpm-led" id="beat-led"></div>
+            <div class="bpm-editor">
+              <span class="bpm-label-text">TEMPO</span>
+              <div class="bpm-number-row">
+                <input type="number" id="bpm-input" min="30" max="300" step="0.1" value="120.0" />
+                <span class="bpm-unit">BPM</span>
+              </div>
+            </div>
+            <div class="bpm-quick-btns">
+              <button class="bpm-mini-btn" id="bpm-minus-1" title="Disminuir 1 BPM">-1</button>
+              <button class="bpm-mini-btn" id="bpm-plus-1" title="Aumentar 1 BPM">+1</button>
+              <button class="bpm-mini-btn" id="bpm-half" title="Dividir entre 2">/2</button>
+              <button class="bpm-mini-btn" id="bpm-double" title="Duplicar">x2</button>
+              <button class="bpm-mini-btn tap" id="btn-tap" title="Tap Tempo">TAP</button>
+            </div>
+          </div>
+
+          <!-- Visor de Offset (Desfase del metrónomo) -->
+          <div class="offset-control-box">
+            <span class="offset-title">OFFSET METRÓNOMO</span>
+            <div class="offset-slider-row">
+              <input type="range" id="offset-slider" min="-1000" max="1000" step="1" value="0" />
+              <span id="val-offset" class="offset-val-text">0 ms</span>
+            </div>
+            <span class="drag-hint">💡 Arrastra la pista del metrónomo para sincronizar</span>
+          </div>
+
+          <!-- Nueva Canción -->
+          <button id="btn-new-song" class="new-song-btn" title="Cargar otra pista">
+            + Nueva Pista
+          </button>
+
+        </div>
+
+        <!-- Timeline / Contenedor Multitrack -->
+        <div class="glass-card tracks-studio-container">
+          
+          <!-- Regla de Tiempo Superior -->
+          <div class="timeline-ruler-wrapper">
+            <div class="ruler-header-spacer">
+              <span>PISTAS</span>
+            </div>
+            <div class="ruler-canvas-container" id="ruler-container">
+              <canvas id="ruler-canvas"></canvas>
+            </div>
+          </div>
+
+          <!-- Contenedor de Pistas -->
+          <div class="tracks-list" id="tracks-list">
             
-            <div class="glass-card wave-card">
-              <div class="song-info">
-                <h2 id="song-title">Cargando cancion...</h2>
+            <!-- TRACK 1: MÚSICA (SIN BATERÍA) -->
+            <div class="track-row" id="track-music">
+              <div class="track-header">
+                <div class="track-title-row">
+                  <span class="track-name">🎵 Música (Sin Batería)</span>
+                </div>
+                <div class="track-controls-row">
+                  <div class="track-btn-group">
+                    <button class="track-btn btn-mute" id="mute-music" title="Mute">M</button>
+                    <button class="track-btn btn-solo" id="solo-music" title="Solo">S</button>
+                  </div>
+                  <div class="track-vol-slider-wrap">
+                    <input type="range" class="track-vol-slider" id="vol-music" min="0" max="100" value="80" />
+                    <span class="vol-label" id="val-music">80%</span>
+                  </div>
+                </div>
               </div>
-              
-              <!-- Contenedor WaveSurfer -->
-              <div class="wave-container-wrapper">
-                <div id="waveform"></div>
-              </div>
-              
-              <!-- Controles de reproduccion -->
-              <div class="playback-controls">
-                <button id="btn-stop" class="control-btn" title="Detener">
-                  <svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>
-                </button>
-                <button id="btn-play-pause" class="control-btn play" title="Reproducir">
-                  <!-- Play icon -->
-                  <svg viewBox="0 0 24 24" id="play-icon"><path d="M8 5v14l11-7z"/></svg>
-                  <!-- Pause icon -->
-                  <svg viewBox="0 0 24 24" id="pause-icon" class="hidden"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
-                </button>
-                <button id="btn-loop" class="control-btn toggle" title="Repetir (Loop)">
-                  <svg viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
-                </button>
+              <div class="track-lane" id="lane-music">
+                <canvas id="canvas-music" class="waveform-canvas"></canvas>
               </div>
             </div>
 
-            <!-- Mezclador de Volumenes -->
-            <div class="glass-card mixer-card">
-              <h3>Mezcla de Practica</h3>
-              
-              <div class="mixer-channels">
-                <div class="mixer-channel">
-                  <label for="vol-music">Musica (Sin Bateria)</label>
-                  <input type="range" id="vol-music" min="0" max="100" value="80" />
-                  <span class="vol-value" id="val-music">80%</span>
+            <!-- TRACK 2: BATERÍA ORIGINAL (AISLADA) -->
+            <div class="track-row" id="track-drums">
+              <div class="track-header">
+                <div class="track-title-row">
+                  <span class="track-name">🥁 Batería Original</span>
                 </div>
-                
-                <div class="mixer-channel">
-                  <label for="vol-drums">Bateria Original (Aislada)</label>
-                  <input type="range" id="vol-drums" min="0" max="100" value="0" />
-                  <span class="vol-value" id="val-drums">0%</span>
+                <div class="track-controls-row">
+                  <div class="track-btn-group">
+                    <button class="track-btn btn-mute" id="mute-drums" title="Mute">M</button>
+                    <button class="track-btn btn-solo" id="solo-drums" title="Solo">S</button>
+                  </div>
+                  <div class="track-vol-slider-wrap">
+                    <input type="range" class="track-vol-slider" id="vol-drums" min="0" max="100" value="0" />
+                    <span class="vol-label" id="val-drums">0%</span>
+                  </div>
                 </div>
+              </div>
+              <div class="track-lane" id="lane-drums">
+                <canvas id="canvas-drums" class="waveform-canvas"></canvas>
+              </div>
+            </div>
 
-                <div class="mixer-channel highlight-channel">
-                  <label for="vol-metronome">Metronomo (Click)</label>
-                  <input type="range" id="vol-metronome" min="0" max="100" value="50" />
-                  <span class="vol-value" id="val-metronome">50%</span>
+            <!-- TRACK 3: METRÓNOMO & BEATS (ARRASTRABLE) -->
+            <div class="track-row metronome-track" id="track-metronome">
+              <div class="track-header highlight-header">
+                <div class="track-title-row">
+                  <span class="track-name">⏱️ Metrónomo (Click)</span>
+                  <select id="metronome-sound" class="sound-dropdown">
+                    <option value="woodblock">Woodblock</option>
+                    <option value="cowbell">Cowbell</option>
+                    <option value="digital">Digital Click</option>
+                    <option value="beep">Beep Tone</option>
+                  </select>
                 </div>
+                <div class="track-controls-row">
+                  <div class="track-btn-group">
+                    <button class="track-btn btn-mute" id="mute-metronome" title="Mute">M</button>
+                    <button class="track-btn btn-solo" id="solo-metronome" title="Solo">S</button>
+                  </div>
+                  <div class="track-vol-slider-wrap">
+                    <input type="range" class="track-vol-slider" id="vol-metronome" min="0" max="100" value="60" />
+                    <span class="vol-label" id="val-metronome">60%</span>
+                  </div>
+                </div>
+              </div>
+              <div class="track-lane draggable-lane" id="lane-metronome" title="Haz clic y arrastra horizontalmente para alinear los beats">
+                <canvas id="canvas-metronome" class="waveform-canvas"></canvas>
+                <div class="drag-overlay-msg">↔ Arrastra para alinear rejilla</div>
               </div>
             </div>
 
           </div>
 
-          <!-- Panel Derecho: Suite de Metronomo y Tempo -->
-          <div class="panel sidebar-panel">
-            
-            <!-- Pantalla de BPM -->
-            <div class="glass-card tempo-card">
-              <div class="bpm-display-wrapper">
-                <div class="tempo-visualizer-led" id="beat-led"></div>
-                <div class="bpm-digits" id="bpm-digits">120</div>
-                <div class="bpm-label">BPM</div>
-              </div>
-              
-              <!-- Ajuste Fino de BPM -->
-              <div class="bpm-quick-actions">
-                <button class="bpm-btn" id="bpm-minus-5">-5</button>
-                <button class="bpm-btn" id="bpm-minus-1">-1</button>
-                <button class="bpm-btn" id="bpm-plus-1">+1</button>
-                <button class="bpm-btn" id="bpm-plus-5">+5</button>
-              </div>
-
-              <div class="bpm-scale-actions">
-                <button class="scale-btn" id="bpm-half">/ 2</button>
-                <button class="scale-btn" id="bpm-double">x 2</button>
-                <button class="scale-btn tap" id="btn-tap">TAP TEMPO</button>
-              </div>
-            </div>
-
-            <!-- Ajuste de Sincronizacion y Configuracion de Click -->
-            <div class="glass-card click-card">
-              <h3>Ajustes de Sincronizacion</h3>
-              <p class="card-desc">Si el metronomo va retrasado o adelantado respecto a la musica, ajusta la alineacion milisegundo a milisegundo.</p>
-              
-              <div class="offset-slider-group">
-                <div class="offset-header">
-                  <label for="offset-slider">Offset de Alineacion</label>
-                  <span class="offset-value" id="val-offset">0 ms</span>
-                </div>
-                <input type="range" id="offset-slider" min="-500" max="500" value="0" step="5" />
-                <div class="offset-labels">
-                  <span>-500ms (Atras)</span>
-                  <span>Centrado</span>
-                  <span>+500ms (Adelante)</span>
-                </div>
-              </div>
-
-              <div class="sound-select-group">
-                <label for="metronome-sound">Sonido del Metronomo</label>
-                <select id="metronome-sound">
-                  <option value="woodblock">Woodblock (Madera)</option>
-                  <option value="cowbell">Cowbell (Cencerro)</option>
-                  <option value="digital">Digital Click</option>
-                  <option value="beep">Sine Beep</option>
-                </select>
-              </div>
-              
-              <!-- Restaurar cambios -->
-              <button class="reset-btn" id="btn-reset-tempo">Restaurar Original (IA)</button>
-            </div>
-
+          <!-- Playhead Global (Línea de Reproducción) -->
+          <div class="global-playhead" id="global-playhead">
+            <div class="playhead-handle"></div>
+            <div class="playhead-line"></div>
           </div>
 
         </div>
@@ -194,6 +235,6 @@
     </main>
   </div>
   
-  <script src="app.js"></script>
+  <script src="app.js?v=2.3"></script>
 </body>
 </html>

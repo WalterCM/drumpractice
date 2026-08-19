@@ -21,19 +21,61 @@ def analyze_tempo(audio_path: str) -> dict:
     # sr=22050 para optimizar el rendimiento de librosa y la carga de memoria
     y, sr = librosa.load(audio_path, sr=22050)
     
-    print("Calculando beat tracking...")
-    tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
+    # Calcular Onset Strength una sola vez para reutilizar
+    onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+    
+    print("Estimando tempo con múltiples candidatos...")
+    
+    # Obtener candidatos de tempo con ac_size grande para mejor resolución
+    # librosa.feature.tempo devuelve los candidatos ordenados por probabilidad
+    tempo_candidates = librosa.feature.tempo(
+        onset_envelope=onset_env, sr=sr,
+        aggregate=None,  # devolver todos los candidatos por frame
+        ac_size=8.0,     # ventana de autocorrelación de 8 segundos
+        start_bpm=120.0
+    )
+    
+    # Calcular el tempo global como la mediana de los candidatos por frame
+    # Esto nos da el tempo más frecuente a lo largo de la canción
+    global_tempo = float(np.median(tempo_candidates))
+    
+    # Resolver ambigüedad de octava:
+    # Si el tempo está entre 80-110, verificar si el doble (160-220) tiene soporte
+    # Calculamos la densidad de onsets para determinar si el tempo real es el doble
+    if 70 < global_tempo < 115:
+        # Contar la distancia media entre picos de onset
+        peaks = librosa.util.peak_pick(
+            onset_env, pre_max=3, post_max=3, 
+            pre_avg=3, post_avg=5, delta=0.5, wait=5
+        )
+        if len(peaks) > 2:
+            peak_times = librosa.frames_to_time(peaks, sr=sr)
+            intervals = np.diff(peak_times)
+            median_interval = float(np.median(intervals))
+            implied_bpm = 60.0 / median_interval if median_interval > 0 else global_tempo
+            
+            # Si los intervalos entre onsets implican un BPM cercano al doble, usar el doble
+            double_tempo = global_tempo * 2
+            if abs(implied_bpm - double_tempo) < abs(implied_bpm - global_tempo):
+                print(f"  Resolviendo ambigüedad de octava: {global_tempo:.1f} -> {double_tempo:.1f} BPM")
+                global_tempo = double_tempo
+    
+    bpm = round(global_tempo, 2)
+    
+    print(f"Tempo estimado: {bpm} BPM. Calculando beat tracking...")
+    
+    # Ejecutar beat_track con el BPM correcto como pista (start_bpm)
+    # Esto fuerza al algoritmo de programación dinámica a buscar beats
+    # con el período correcto en lugar del default de 120 BPM
+    tempo_result, beat_frames = librosa.beat.beat_track(
+        onset_envelope=onset_env, sr=sr,
+        start_bpm=bpm,
+        units='frames'
+    )
     
     # Convertir frames de beats a tiempo en segundos
     beat_times = librosa.frames_to_time(beat_frames, sr=sr)
     
-    # Asegurarnos de que el tempo sea un float de Python nativo (librosa 0.10+ devuelve float o array de un elemento)
-    if isinstance(tempo, np.ndarray):
-        bpm = float(tempo[0]) if len(tempo) > 0 else 120.0
-    else:
-        bpm = float(tempo)
-        
-    bpm = round(bpm, 2)
     beats_list = [round(float(t), 4) for t in beat_times]
     
     print(f"Análisis completado: BPM estimado = {bpm}, Beats detectados = {len(beats_list)}")
