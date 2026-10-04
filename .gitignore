@@ -49,9 +49,15 @@ package-lock.json
 dist/
 build/
 out/
+backend/dist/
+backend/build/
+src-tauri/target/
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
 *.exe
 *.AppImage
 *.deb
+*.msi
 
 # Logs y archivos del sistema
 *.log

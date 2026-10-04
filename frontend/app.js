@@ -2,7 +2,9 @@
 // Web Audio API Multitrack Engine con Canvas Waves, Mute/Solo, Scheduler y Drag & Drop Sync
 
 let audioCtx = null;
-let musicBuffer = null;
+let vocalsBuffer = null;
+let otherBuffer = null;
+let bassBuffer = null;
 let drumsBuffer = null;
 let songDuration = 0;
 let isPlaying = false;
@@ -19,7 +21,9 @@ let songTitleStr = "Pista";
 
 // Estado de pistas (DAW Tracks)
 const tracks = {
-  music: { vol: 0.8, mute: false, solo: false, gainNode: null, sourceNode: null },
+  vocals: { vol: 0.8, mute: false, solo: false, gainNode: null, sourceNode: null },
+  other: { vol: 0.8, mute: false, solo: false, gainNode: null, sourceNode: null },
+  bass: { vol: 0.8, mute: false, solo: false, gainNode: null, sourceNode: null },
   drums: { vol: 0.0, mute: false, solo: false, gainNode: null, sourceNode: null },
   metronome: { vol: 0.6, mute: false, solo: false, gainNode: null }
 };
@@ -66,18 +70,86 @@ const beatLed = document.getElementById('beat-led');
 const offsetSlider = document.getElementById('offset-slider');
 const valOffset = document.getElementById('val-offset');
 const metronomeSound = document.getElementById('metronome-sound');
+const countInSelect = document.getElementById('count-in-select');
+
+// Variables de Cuenta Previa (Count-in)
+let isCountingIn = false;
+let countInTimeoutId = null;
+let countInIntervalId = null;
+let countInVisualTimeouts = [];
+let activeOscillators = [];
+let beatShift = 0;
+
+function getEffectiveOffset() {
+  const secondsPerBeat = 60.0 / currentBPM;
+  return currentOffset + beatShift * secondsPerBeat;
+}
 
 // Canvas
 const rulerCanvas = document.getElementById('ruler-canvas');
-const canvasMusic = document.getElementById('canvas-music');
+const canvasVocals = document.getElementById('canvas-vocals');
+const canvasOther = document.getElementById('canvas-other');
+const canvasBass = document.getElementById('canvas-bass');
 const canvasDrums = document.getElementById('canvas-drums');
 const canvasMetronome = document.getElementById('canvas-metronome');
 const globalPlayhead = document.getElementById('global-playhead');
 const laneMetronome = document.getElementById('lane-metronome');
 
+// Detección dinámica del puerto del Backend (8000, 8001, 8002...)
+let activeBackendPort = window.__BACKEND_PORT__ || 8000;
+
+async function detectBackendPort() {
+  if (window.__BACKEND_PORT__) {
+    activeBackendPort = window.__BACKEND_PORT__;
+    return activeBackendPort;
+  }
+  
+  // Probar candidatos comunes rápidamente (8000, 8001, 8002, 8003, ...)
+  const candidates = [8000, 8001, 8002, 8003, 8004, 8005, 8080];
+  for (const p of candidates) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 200);
+      const res = await fetch(`http://127.0.0.1:${p}/api/health`, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.service === "Drum Practice Backend") {
+          activeBackendPort = p;
+          console.log(`[Connectivity] Backend de Drum Practice detectado en puerto ${p}`);
+          return p;
+        }
+      }
+    } catch (e) {}
+  }
+  return activeBackendPort;
+}
+
+function getBackendBase() {
+  return `http://127.0.0.1:${activeBackendPort}`;
+}
+
+function getBackendUrl(path) {
+  if (!path) return '';
+  let fullUrl = path;
+  if (!path.startsWith('http://') && !path.startsWith('https://') && !path.startsWith('blob:')) {
+    const base = getBackendBase();
+    fullUrl = `${base}${path.startsWith('/') ? '' : '/'}${path}`;
+  }
+  try {
+    fullUrl = decodeURI(fullUrl);
+  } catch (e) {}
+  return encodeURI(fullUrl);
+}
+
+function getWebSocketUrl(path) {
+  return `ws://127.0.0.1:${activeBackendPort}${path.startsWith('/') ? '' : '/'}${path}`;
+}
+
 // Conexión Backend
-function connectBackend() {
-  const healthUrl = window.location.protocol === 'file:' ? 'http://127.0.0.1:8000/api/health' : '/api/health';
+async function connectBackend() {
+  await detectBackendPort();
+  const healthUrl = getBackendUrl('/api/health');
   fetch(healthUrl)
     .then(res => {
       if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -86,7 +158,7 @@ function connectBackend() {
     .then(data => {
       if (data.status === 'running') {
         backendStatusDot.className = 'status-dot connected';
-        backendStatusText.textContent = 'Backend Conectado (Local)';
+        backendStatusText.textContent = `Backend Conectado (Puerto ${activeBackendPort})`;
         youtubeUrlInput.removeAttribute('disabled');
         const url = youtubeUrlInput.value.trim();
         if (url.includes('youtube.com/') || url.includes('youtu.be/')) {
@@ -96,7 +168,7 @@ function connectBackend() {
     })
     .catch(err => {
       backendStatusDot.className = 'status-dot disconnected';
-      backendStatusText.textContent = 'Backend Desconectado - Ejecuta ./run_app.sh';
+      backendStatusText.textContent = 'Buscando Backend...';
       youtubeUrlInput.setAttribute('disabled', 'true');
       processBtn.setAttribute('disabled', 'true');
       setTimeout(connectBackend, 2000);
@@ -129,9 +201,7 @@ processBtn.addEventListener('click', () => {
   processBtn.setAttribute('disabled', 'true');
   youtubeUrlInput.setAttribute('disabled', 'true');
 
-  const wsHost = window.location.protocol === 'file:' ? '127.0.0.1:8000' : window.location.host;
-  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const ws = new WebSocket(`${wsProtocol}//${wsHost}/ws/process`);
+  const ws = new WebSocket(getWebSocketUrl('/ws/process'));
 
   ws.onopen = () => {
     ws.send(JSON.stringify({ url: url }));
@@ -187,7 +257,7 @@ if (btnBrowseFile && localAudioInput) {
 
     const formData = new FormData();
     formData.append('file', file);
-    const uploadUrl = window.location.protocol === 'file:' ? 'http://127.0.0.1:8000/api/upload' : '/api/upload';
+    const uploadUrl = getBackendUrl('/api/upload');
 
     try {
       const response = await fetch(uploadUrl, { method: 'POST', body: formData });
@@ -254,6 +324,11 @@ async function setupDAWWorkspace(songData) {
     currentOffset = 0.0;
   }
 
+  beatShift = 0;
+  if (valBeatShift) {
+    valBeatShift.textContent = `0 Beats`;
+  }
+
   const offsetMs = Math.round(currentOffset * 1000);
   offsetSlider.value = offsetMs;
   valOffset.textContent = `${offsetMs >= 0 ? '+' : ''}${offsetMs} ms`;
@@ -263,60 +338,144 @@ async function setupDAWWorkspace(songData) {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   }
 
-  // Configurar Gain Nodes
-  tracks.music.gainNode = audioCtx.createGain();
-  tracks.drums.gainNode = audioCtx.createGain();
-  tracks.metronome.gainNode = audioCtx.createGain();
+  // Configurar Gain Nodes para las 5 pistas
+  ['vocals', 'other', 'bass', 'drums', 'metronome'].forEach(key => {
+    tracks[key].gainNode = audioCtx.createGain();
+    tracks[key].gainNode.connect(audioCtx.destination);
+  });
 
-  tracks.music.gainNode.connect(audioCtx.destination);
-  tracks.drums.gainNode.connect(audioCtx.destination);
-  tracks.metronome.gainNode.connect(audioCtx.destination);
+  // Sincronizar el estado interno de volumen y botones con el DOM
+  const trackKeys = ['vocals', 'other', 'bass', 'drums', 'metronome'];
+  const defaultVols = { vocals: 0.8, other: 0.8, bass: 0.8, drums: 0.0, metronome: 0.6 };
 
-  // Sincronizar el estado interno de volumen y botones con los sliders del DOM
-  const volMusicElem = document.getElementById('vol-music');
-  const volDrumsElem = document.getElementById('vol-drums');
-  const volMetroElem = document.getElementById('vol-metronome');
+  trackKeys.forEach(key => {
+    const volElem = document.getElementById(`vol-${key}`);
+    const valElem = document.getElementById(`val-${key}`);
+    const muteElem = document.getElementById(`mute-${key}`);
+    const soloElem = document.getElementById(`solo-${key}`);
 
-  tracks.music.vol = volMusicElem ? parseFloat(volMusicElem.value) / 100 : 0.8;
-  tracks.drums.vol = volDrumsElem ? parseFloat(volDrumsElem.value) / 100 : 0.0;
-  tracks.metronome.vol = volMetroElem ? parseFloat(volMetroElem.value) / 100 : 0.6;
+    tracks[key].vol = volElem ? parseFloat(volElem.value) / 100 : defaultVols[key];
+    if (valElem) valElem.textContent = `${Math.round(tracks[key].vol * 100)}%`;
 
-  document.getElementById('val-music').textContent = `${Math.round(tracks.music.vol * 100)}%`;
-  document.getElementById('val-drums').textContent = `${Math.round(tracks.drums.vol * 100)}%`;
-  document.getElementById('val-metronome').textContent = `${Math.round(tracks.metronome.vol * 100)}%`;
-
-  tracks.music.mute = document.getElementById('mute-music').classList.contains('active');
-  tracks.drums.mute = document.getElementById('mute-drums').classList.contains('active');
-  tracks.metronome.mute = document.getElementById('mute-metronome').classList.contains('active');
-
-  tracks.music.solo = document.getElementById('solo-music').classList.contains('active');
-  tracks.drums.solo = document.getElementById('solo-drums').classList.contains('active');
-  tracks.metronome.solo = document.getElementById('solo-metronome').classList.contains('active');
+    tracks[key].mute = muteElem ? muteElem.classList.contains('active') : false;
+    tracks[key].solo = soloElem ? soloElem.classList.contains('active') : false;
+  });
 
   updateTrackGains();
 
-  progressMessage.textContent = "Decodificando pistas de audio...";
+// Decodificador manual de archivos WAV (16-bit PCM y 32-bit Float)
+// Garantiza compatibilidad al 100% sin depender de los plugins de GStreamer en Linux/WebKitGTK
+function decodeWavManually(arrayBuffer, ctx) {
+  const view = new DataView(arrayBuffer);
+  const riff = String.fromCharCode(view.getUint8(0), view.getUint8(1), view.getUint8(2), view.getUint8(3));
+  const wave = String.fromCharCode(view.getUint8(8), view.getUint8(9), view.getUint8(10), view.getUint8(11));
+  if (riff !== 'RIFF' || wave !== 'WAVE') {
+    throw new Error('El archivo no es un formato WAV válido');
+  }
+
+  let offset = 12;
+  let channels = 2;
+  let sampleRate = 44100;
+  let bitsPerSample = 16;
+  let audioFormat = 1;
+  let dataOffset = 0;
+  let dataLength = 0;
+
+  while (offset < view.byteLength) {
+    const chunkId = String.fromCharCode(
+      view.getUint8(offset),
+      view.getUint8(offset + 1),
+      view.getUint8(offset + 2),
+      view.getUint8(offset + 3)
+    );
+    const chunkSize = view.getUint32(offset + 4, true);
+
+    if (chunkId === 'fmt ') {
+      audioFormat = view.getUint16(offset + 8, true);
+      channels = view.getUint16(offset + 10, true);
+      sampleRate = view.getUint32(offset + 12, true);
+      bitsPerSample = view.getUint16(offset + 22, true);
+    } else if (chunkId === 'data') {
+      dataOffset = offset + 8;
+      dataLength = chunkSize;
+      break;
+    }
+    offset += 8 + chunkSize;
+  }
+
+  if (!dataOffset) {
+    throw new Error('No se encontró el bloque de datos de audio en el WAV');
+  }
+
+  const bytesPerSample = bitsPerSample / 8;
+  const totalSamples = Math.floor(dataLength / (channels * bytesPerSample));
+  const audioBuffer = ctx.createBuffer(channels, totalSamples, sampleRate);
+
+  if (audioFormat === 1 && bitsPerSample === 16) {
+    const samples = new Int16Array(arrayBuffer, dataOffset, totalSamples * channels);
+    for (let c = 0; c < channels; c++) {
+      const channelData = audioBuffer.getChannelData(c);
+      for (let i = 0; i < totalSamples; i++) {
+        channelData[i] = samples[i * channels + c] / 32768.0;
+      }
+    }
+    return audioBuffer;
+  } else if (audioFormat === 3 && bitsPerSample === 32) {
+    const samples = new Float32Array(arrayBuffer, dataOffset, totalSamples * channels);
+    for (let c = 0; c < channels; c++) {
+      const channelData = audioBuffer.getChannelData(c);
+      for (let i = 0; i < totalSamples; i++) {
+        channelData[i] = samples[i * channels + c];
+      }
+    }
+    return audioBuffer;
+  } else {
+    throw new Error(`Formato WAV no soportado: format=${audioFormat}, bits=${bitsPerSample}`);
+  }
+}
+
+  progressMessage.textContent = "Decodificando pistas de audio separadas por IA...";
   try {
-    const [songRes, drumsRes] = await Promise.all([
-      fetch(songData.no_drums_url),
-      songData.drums_url ? fetch(songData.drums_url) : Promise.resolve(null)
-    ]);
-
-    const songArr = await songRes.arrayBuffer();
-    musicBuffer = await audioCtx.decodeAudioData(songArr);
-
-    if (drumsRes) {
-      const drumsArr = await drumsRes.arrayBuffer();
-      drumsBuffer = await audioCtx.decodeAudioData(drumsArr);
-    } else {
-      drumsBuffer = null;
+    async function fetchAndDecode(path, name) {
+      if (!path) return null;
+      const url = getBackendUrl(path);
+      console.log(`[Audio Engine] Descargando ${name} desde:`, url);
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status} al descargar pista ${name} (${url})`);
+      }
+      const buffer = await res.arrayBuffer();
+      if (!buffer || buffer.byteLength === 0) {
+        throw new Error(`Buffer vacío recibido para pista ${name}`);
+      }
+      
+      // Intentar decodificación nativa con AudioContext; si falla por falta de codecs en Linux, usar decodificador manual
+      try {
+        return await audioCtx.decodeAudioData(buffer.slice(0));
+      } catch (nativeErr) {
+        console.warn(`[Audio Engine] decodeAudioData nativo no disponible (${nativeErr.message}). Decodificando ${name} manualmente en JS...`);
+        return decodeWavManually(buffer, audioCtx);
+      }
     }
 
-    songDuration = musicBuffer.duration;
+    const [vBuf, oBuf, bBuf, dBuf] = await Promise.all([
+      fetchAndDecode(songData.vocals_url, 'Voz'),
+      fetchAndDecode(songData.other_url || songData.no_drums_url, 'Otros'),
+      fetchAndDecode(songData.bass_url, 'Bajo'),
+      fetchAndDecode(songData.drums_url, 'Batería')
+    ]);
+
+    vocalsBuffer = vBuf;
+    otherBuffer = oBuf;
+    bassBuffer = bBuf;
+    drumsBuffer = dBuf;
+
+    const mainBuf = vocalsBuffer || otherBuffer || bassBuffer || drumsBuffer;
+    songDuration = mainBuf ? mainBuf.duration : 0;
+
     timeTotal.textContent = formatTime(songDuration);
     timeCurrent.textContent = formatTime(0);
 
-    // Ajustar resolución y dibujar formas de onda
     requestAnimationFrame(() => {
       resizeAndDrawAllTracks();
     });
@@ -333,7 +492,7 @@ async function setupDAWWorkspace(songData) {
 function updateTrackGains() {
   if (!audioCtx) return;
   const now = audioCtx.currentTime;
-  const anySolo = tracks.music.solo || tracks.drums.solo || tracks.metronome.solo;
+  const anySolo = tracks.vocals.solo || tracks.other.solo || tracks.bass.solo || tracks.drums.solo || tracks.metronome.solo;
 
   for (const key in tracks) {
     const t = tracks[key];
@@ -358,6 +517,39 @@ function updateTrackGains() {
   }
 }
 
+// Listeners de Volumen, Mute y Solo
+['vocals', 'other', 'bass', 'drums', 'metronome'].forEach(key => {
+  const volElem = document.getElementById(`vol-${key}`);
+  const muteElem = document.getElementById(`mute-${key}`);
+  const soloElem = document.getElementById(`solo-${key}`);
+
+  if (volElem) {
+    volElem.addEventListener('input', (e) => {
+      const v = e.target.value / 100;
+      tracks[key].vol = v;
+      const valElem = document.getElementById(`val-${key}`);
+      if (valElem) valElem.textContent = `${Math.round(v * 100)}%`;
+      updateTrackGains();
+    });
+  }
+
+  if (muteElem) {
+    muteElem.addEventListener('click', (e) => {
+      tracks[key].mute = !tracks[key].mute;
+      e.target.classList.toggle('active', tracks[key].mute);
+      updateTrackGains();
+    });
+  }
+
+  if (soloElem) {
+    soloElem.addEventListener('click', (e) => {
+      tracks[key].solo = !tracks[key].solo;
+      e.target.classList.toggle('active', tracks[key].solo);
+      updateTrackGains();
+    });
+  }
+});
+
 // ==========================================================================
 // DIBUJO DE FORMAS DE ONDA & REGLAS (CANVAS HIGH PERFORMANCE)
 // ==========================================================================
@@ -373,77 +565,20 @@ function resizeAndDrawAllTracks() {
 
   // Redimensionar Canvas
   setupCanvasSize(rulerCanvas, timelineWidth, 30);
-  setupCanvasSize(canvasMusic, timelineWidth, 110);
+  setupCanvasSize(canvasVocals, timelineWidth, 110);
+  setupCanvasSize(canvasOther, timelineWidth, 110);
+  setupCanvasSize(canvasBass, timelineWidth, 110);
   setupCanvasSize(canvasDrums, timelineWidth, 110);
   setupCanvasSize(canvasMetronome, timelineWidth, 110);
 
   // Dibujar
   drawRuler();
-  if (musicBuffer) drawWaveform(canvasMusic, musicBuffer, '#06b6d4');
-  if (drumsBuffer) drawWaveform(canvasDrums, drumsBuffer, '#a855f7');
+  if (vocalsBuffer) drawWaveform(canvasVocals, vocalsBuffer, '#c084fc');
+  if (otherBuffer) drawWaveform(canvasOther, otherBuffer, '#06b6d4');
+  if (bassBuffer) drawWaveform(canvasBass, bassBuffer, '#fbbf24');
+  if (drumsBuffer) drawWaveform(canvasDrums, drumsBuffer, '#f43f5e');
   drawMetronomeGrid();
 }
-
-// Listeners de Volumen
-document.getElementById('vol-music').addEventListener('input', (e) => {
-  const v = e.target.value / 100;
-  tracks.music.vol = v;
-  document.getElementById('val-music').textContent = `${Math.round(v * 100)}%`;
-  updateTrackGains();
-});
-
-document.getElementById('vol-drums').addEventListener('input', (e) => {
-  const v = e.target.value / 100;
-  tracks.drums.vol = v;
-  document.getElementById('val-drums').textContent = `${Math.round(v * 100)}%`;
-  updateTrackGains();
-});
-
-document.getElementById('vol-metronome').addEventListener('input', (e) => {
-  const v = e.target.value / 100;
-  tracks.metronome.vol = v;
-  document.getElementById('val-metronome').textContent = `${Math.round(v * 100)}%`;
-  updateTrackGains();
-});
-
-// Listeners Mute
-document.getElementById('mute-music').addEventListener('click', (e) => {
-  tracks.music.mute = !tracks.music.mute;
-  e.target.classList.toggle('active', tracks.music.mute);
-  updateTrackGains();
-});
-
-document.getElementById('mute-drums').addEventListener('click', (e) => {
-  tracks.drums.mute = !tracks.drums.mute;
-  e.target.classList.toggle('active', tracks.drums.mute);
-  updateTrackGains();
-});
-
-document.getElementById('mute-metronome').addEventListener('click', (e) => {
-  tracks.metronome.mute = !tracks.metronome.mute;
-  e.target.classList.toggle('active', tracks.metronome.mute);
-  updateTrackGains();
-});
-
-// Listeners Solo
-document.getElementById('solo-music').addEventListener('click', (e) => {
-  tracks.music.solo = !tracks.music.solo;
-  e.target.classList.toggle('active', tracks.music.solo);
-  updateTrackGains();
-});
-
-document.getElementById('solo-drums').addEventListener('click', (e) => {
-  tracks.drums.solo = !tracks.drums.solo;
-  e.target.classList.toggle('active', tracks.drums.solo);
-  updateTrackGains();
-});
-
-document.getElementById('solo-metronome').addEventListener('click', (e) => {
-  tracks.metronome.solo = !tracks.metronome.solo;
-  e.target.classList.toggle('active', tracks.metronome.solo);
-  updateTrackGains();
-});
-
 
 function setupCanvasSize(canvas, width, height) {
   const dpr = window.devicePixelRatio || 1;
@@ -528,7 +663,7 @@ function drawMetronomeGrid() {
   if (currentBPM <= 0 || songDuration <= 0) return;
 
   const secondsPerBeat = 60.0 / currentBPM;
-  let beatTime = currentOffset;
+  let beatTime = getEffectiveOffset();
   let index = 0;
 
   // Dibujar marcadores de beats detectados por IA (puntos cian de referencia en la parte superior)
@@ -633,16 +768,110 @@ offsetSlider.addEventListener('input', (e) => {
   if (isPlaying) resyncScheduler();
 });
 
+// Desplazamiento por Beats (Tiempos)
+const btnBeatShiftMinus = document.getElementById('btn-beat-shift-minus');
+const btnBeatShiftPlus = document.getElementById('btn-beat-shift-plus');
+const valBeatShift = document.getElementById('val-beat-shift');
+
+function updateBeatShift(newShift) {
+  beatShift = newShift;
+  if (valBeatShift) {
+    valBeatShift.textContent = `${beatShift >= 0 ? '+' : ''}${beatShift} Beats`;
+  }
+  drawMetronomeGrid();
+  if (isPlaying) resyncScheduler();
+}
+
+if (btnBeatShiftMinus && btnBeatShiftPlus) {
+  btnBeatShiftMinus.addEventListener('click', () => {
+    updateBeatShift(beatShift - 1);
+  });
+  btnBeatShiftPlus.addEventListener('click', () => {
+    updateBeatShift(beatShift + 1);
+  });
+}
+
 // ==========================================================================
 // REPRODUCCIÓN MULTITRACK (WEB AUDIO API & SCHEDULER)
 // ==========================================================================
 async function playTrack(startSeconds = 0) {
-  if (!musicBuffer) return;
+  if (!vocalsBuffer && !otherBuffer && !bassBuffer && !drumsBuffer) return;
 
   if (audioCtx.state === 'suspended') {
     await audioCtx.resume();
   }
 
+  const countInMeasuresVal = parseInt(countInSelect ? countInSelect.value : "1", 10) || 0;
+
+  // Si arrancamos desde el inicio (startSeconds === 0) y hay cuenta previa activada
+  if (startSeconds === 0 && countInMeasuresVal > 0 && !isCountingIn) {
+    isCountingIn = true;
+    isPlaying = true;
+    playIcon.classList.add('hidden');
+    pauseIcon.classList.remove('hidden');
+
+    // Actualizar volumen de las pistas antes de empezar la cuenta
+    updateTrackGains();
+
+    const secondsPerBeat = 60.0 / currentBPM;
+    const totalCountBeats = countInMeasuresVal * 4;
+    const countInDuration = totalCountBeats * secondsPerBeat;
+    const now = audioCtx.currentTime;
+
+    // Obtener desfase total (ajuste fino + desplazamiento por beats)
+    const effOffset = getEffectiveOffset();
+    
+    // Si el desfase efectivo es menor o igual a 2.0s, retrasamos el inicio de la canción
+    // para que coincida exactamente con el final de la cuenta previa.
+    // Si es mayor a 2.0s (introducción larga), iniciamos el audio directamente y la cuenta
+    // previa sonará antes de que empiece la canción física (o encima de la intro).
+    const alignTime = effOffset <= 2.0 ? effOffset : 0.0;
+    const audioStartDelay = Math.max(0, countInDuration - alignTime);
+
+    // Limpiar programaciones visuales previas
+    countInVisualTimeouts.forEach(clearTimeout);
+    countInVisualTimeouts = [];
+
+    // Disparar clics de la cuenta previa
+    // Estos clics se programan hacia atrás desde el inicio del audio (now + audioStartDelay)
+    // Si effOffset es negativo, el click de la canción correspondiente al tiempo 0 (k=0)
+    // cae antes del inicio físico del audio y por tanto debe ser reproducido en esta fase.
+    const minK = effOffset < 0 ? 0 : 1;
+    for (let k = totalCountBeats; k >= minK; k--) {
+      const clickTime = now + audioStartDelay + effOffset - k * secondsPerBeat;
+      const isAccent = ((totalCountBeats - k) % 4 === 0);
+      
+      if (clickTime >= now - 0.02) {
+        playClickSound(Math.max(now, clickTime), isAccent);
+        
+        // Programar conteo visual en timeCurrent coincidiendo exactamente con el clic
+        const delayMs = Math.max(0, (clickTime - now) * 1000);
+        const visualBeatNum = ((totalCountBeats - k) % 4) + 1;
+        const timeoutId = setTimeout(() => {
+          timeCurrent.textContent = `COUNT: ${visualBeatNum}`;
+        }, delayMs);
+        countInVisualTimeouts.push(timeoutId);
+      }
+    }
+
+    if (countInTimeoutId) clearTimeout(countInTimeoutId);
+    countInTimeoutId = setTimeout(() => {
+      isCountingIn = false;
+      countInTimeoutId = null;
+      countInVisualTimeouts.forEach(clearTimeout);
+      countInVisualTimeouts = [];
+      if (!isPlaying) return;
+      startActualPlayback(0);
+    }, audioStartDelay * 1000);
+
+    return;
+  }
+
+  startActualPlayback(startSeconds);
+}
+
+function startActualPlayback(startSeconds = 0) {
+  if (!vocalsBuffer && !otherBuffer && !bassBuffer && !drumsBuffer) return;
   isPlaying = true;
   pausedAt = startSeconds;
 
@@ -655,37 +884,33 @@ async function playTrack(startSeconds = 0) {
   // Actualizar volumen de las pistas antes de empezar
   updateTrackGains();
 
-  // Crear nodos fuente de audio para música y batería
-  tracks.music.sourceNode = audioCtx.createBufferSource();
-  tracks.music.sourceNode.buffer = musicBuffer;
-  tracks.music.sourceNode.connect(tracks.music.gainNode);
+  // Crear nodos fuente para cada stem disponible
+  const stemBuffers = {
+    vocals: vocalsBuffer,
+    other: otherBuffer,
+    bass: bassBuffer,
+    drums: drumsBuffer
+  };
 
-  if (drumsBuffer) {
-    tracks.drums.sourceNode = audioCtx.createBufferSource();
-    tracks.drums.sourceNode.buffer = drumsBuffer;
-    tracks.drums.sourceNode.connect(tracks.drums.gainNode);
-  }
+  for (const key in stemBuffers) {
+    const buf = stemBuffers[key];
+    if (buf) {
+      tracks[key].sourceNode = audioCtx.createBufferSource();
+      tracks[key].sourceNode.buffer = buf;
+      tracks[key].sourceNode.connect(tracks[key].gainNode);
 
-  // Loop
-  if (isLooping) {
-    tracks.music.sourceNode.loop = true;
-    tracks.music.sourceNode.loopStart = 0;
-    tracks.music.sourceNode.loopEnd = songDuration;
-    if (tracks.drums.sourceNode) {
-      tracks.drums.sourceNode.loop = true;
-      tracks.drums.sourceNode.loopStart = 0;
-      tracks.drums.sourceNode.loopEnd = songDuration;
+      if (isLooping) {
+        tracks[key].sourceNode.loop = true;
+        tracks[key].sourceNode.loopStart = 0;
+        tracks[key].sourceNode.loopEnd = songDuration;
+      }
+
+      tracks[key].sourceNode.start(now, startSeconds);
     }
   }
 
   // Configurar Scheduler del Metrónomo
   resyncScheduler();
-
-  // Iniciar reproducción
-  tracks.music.sourceNode.start(now, startSeconds);
-  if (tracks.drums.sourceNode) {
-    tracks.drums.sourceNode.start(now, startSeconds);
-  }
 
   // Iniciar intervalo de scheduler del metrónomo
   if (schedulerIntervalId) clearInterval(schedulerIntervalId);
@@ -696,23 +921,45 @@ async function playTrack(startSeconds = 0) {
 }
 
 function stopAudioSources() {
+  if (isCountingIn) {
+    isCountingIn = false;
+  }
+  if (countInTimeoutId) {
+    clearTimeout(countInTimeoutId);
+    countInTimeoutId = null;
+  }
+  if (countInIntervalId) {
+    clearInterval(countInIntervalId);
+    countInIntervalId = null;
+  }
+
+  // Limpiar timeouts del conteo visual
+  countInVisualTimeouts.forEach(clearTimeout);
+  countInVisualTimeouts = [];
+
+  // Detener todos los osciladores del metrónomo que estén sonando
+  activeOscillators.forEach(osc => {
+    try {
+      osc.stop();
+      osc.disconnect();
+    } catch (e) {}
+  });
+  activeOscillators = [];
+
   if (schedulerIntervalId) {
     clearInterval(schedulerIntervalId);
     schedulerIntervalId = null;
   }
 
-  try {
-    if (tracks.music.sourceNode) {
-      tracks.music.sourceNode.stop();
-      tracks.music.sourceNode.disconnect();
-      tracks.music.sourceNode = null;
-    }
-    if (tracks.drums.sourceNode) {
-      tracks.drums.sourceNode.stop();
-      tracks.drums.sourceNode.disconnect();
-      tracks.drums.sourceNode = null;
-    }
-  } catch (e) {}
+  ['vocals', 'other', 'bass', 'drums'].forEach(key => {
+    try {
+      if (tracks[key] && tracks[key].sourceNode) {
+        tracks[key].sourceNode.stop();
+        tracks[key].sourceNode.disconnect();
+        tracks[key].sourceNode = null;
+      }
+    } catch (e) {}
+  });
 }
 
 function pauseTrack() {
@@ -720,6 +967,13 @@ function pauseTrack() {
   isPlaying = false;
   playIcon.classList.remove('hidden');
   pauseIcon.classList.add('hidden');
+
+  if (isCountingIn) {
+    stopAudioSources();
+    pausedAt = 0;
+    timeCurrent.textContent = formatTime(0);
+    return;
+  }
 
   pausedAt = audioCtx.currentTime - playbackStartTime;
   if (pausedAt >= songDuration) pausedAt = 0;
@@ -749,8 +1003,11 @@ btnStop.addEventListener('click', () => stopTrack());
 btnLoop.addEventListener('click', () => {
   isLooping = !isLooping;
   btnLoop.classList.toggle('active', isLooping);
-  if (tracks.music.sourceNode) tracks.music.sourceNode.loop = isLooping;
-  if (tracks.drums.sourceNode) tracks.drums.sourceNode.loop = isLooping;
+  ['vocals', 'other', 'bass', 'drums'].forEach(key => {
+    if (tracks[key] && tracks[key].sourceNode) {
+      tracks[key].sourceNode.loop = isLooping;
+    }
+  });
 });
 
 // Atajos de teclado (Espacio = Play/Pause, Enter = Stop)
@@ -786,8 +1043,10 @@ function handleTimelineClick(e) {
 }
 
 document.getElementById('ruler-container').addEventListener('click', handleTimelineClick);
-document.getElementById('lane-music').addEventListener('click', handleTimelineClick);
-document.getElementById('lane-drums').addEventListener('click', handleTimelineClick);
+['lane-vocals', 'lane-other', 'lane-bass', 'lane-drums'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('click', handleTimelineClick);
+});
 
 // ==========================================================================
 // SCHEDULER DEL METRÓNOMO & ANIMACIÓN PLAYHEAD
@@ -795,13 +1054,14 @@ document.getElementById('lane-drums').addEventListener('click', handleTimelineCl
 function resyncScheduler() {
   const currentSongTime = isPlaying ? (audioCtx.currentTime - playbackStartTime) : pausedAt;
   const secondsPerBeat = 60.0 / currentBPM;
+  const effOffset = getEffectiveOffset();
 
   let n = 0;
-  if (currentSongTime > currentOffset) {
-    n = Math.ceil((currentSongTime - currentOffset) / secondsPerBeat);
+  if (currentSongTime > effOffset) {
+    n = Math.ceil((currentSongTime - effOffset) / secondsPerBeat);
   }
   beatIndex = n;
-  nextNoteTime = playbackStartTime + currentOffset + n * secondsPerBeat;
+  nextNoteTime = playbackStartTime + effOffset + n * secondsPerBeat;
 }
 
 function scheduler() {
@@ -811,7 +1071,7 @@ function scheduler() {
     if (songPlayPosition >= songDuration) {
       if (isLooping) {
         playbackStartTime += songDuration;
-        nextNoteTime = playbackStartTime + currentOffset;
+        nextNoteTime = playbackStartTime + getEffectiveOffset();
         beatIndex = 0;
         continue;
       } else {
@@ -859,6 +1119,10 @@ function playClickSound(time, isAccent = false) {
     gain2.gain.exponentialRampToValueAtTime(0.001, time + duration);
     osc2.start(time);
     osc2.stop(time + duration);
+    activeOscillators.push(osc2);
+    osc2.onended = () => {
+      activeOscillators = activeOscillators.filter(item => item !== osc2);
+    };
   } else if (soundType === 'digital') {
     osc.type = 'sine';
     osc.frequency.setValueAtTime(isAccent ? 1600 : 1000, time);
@@ -873,6 +1137,10 @@ function playClickSound(time, isAccent = false) {
 
   osc.start(time);
   osc.stop(time + duration + 0.02);
+  activeOscillators.push(osc);
+  osc.onended = () => {
+    activeOscillators = activeOscillators.filter(item => item !== osc);
+  };
 
   // Flash LED visual
   const delayMs = (time - audioCtx.currentTime) * 1000;
@@ -966,7 +1234,8 @@ const btnExportWav = document.getElementById('btn-export-wav');
 
 if (btnExportWav) {
   btnExportWav.addEventListener('click', async () => {
-    if (!musicBuffer) {
+    const anyBuffer = vocalsBuffer || otherBuffer || bassBuffer || drumsBuffer;
+    if (!anyBuffer) {
       alert("No hay ninguna pista de audio cargada para exportar.");
       return;
     }
@@ -981,10 +1250,21 @@ if (btnExportWav) {
     `;
 
     try {
-      // 1. Configurar contexto offline a la tasa de muestreo del audio original
-      const sampleRate = musicBuffer.sampleRate || 44100;
+      // 1. Configurar cuenta previa y contexto offline
+      const countInMeasuresVal = parseInt(countInSelect ? countInSelect.value : "1", 10) || 0;
+      const secondsPerBeat = 60.0 / currentBPM;
+      const totalCountBeats = countInMeasuresVal * 4;
+      const countInDuration = totalCountBeats * secondsPerBeat;
+
+      // Calcular el retraso efectivo basándose en getEffectiveOffset()
+      const effOffset = getEffectiveOffset();
+      const alignTime = effOffset <= 2.0 ? effOffset : 0.0;
+      const audioStartDelay = countInMeasuresVal > 0 ? Math.max(0, countInDuration - alignTime) : 0;
+
+      const sampleRate = anyBuffer.sampleRate || 44100;
       const numChannels = 2; // Stereo
-      const totalFrames = Math.ceil(songDuration * sampleRate);
+      const totalExportDuration = songDuration + audioStartDelay;
+      const totalFrames = Math.ceil(totalExportDuration * sampleRate);
       
       const offlineCtx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(
         numChannels,
@@ -993,7 +1273,7 @@ if (btnExportWav) {
       );
 
       // 2. Calcular ganancias efectivas según los sliders, Mute y Solo
-      const anySolo = tracks.music.solo || tracks.drums.solo || tracks.metronome.solo;
+      const anySolo = tracks.vocals.solo || tracks.other.solo || tracks.bass.solo || tracks.drums.solo || tracks.metronome.solo;
       function getEffectiveGain(t) {
         if (anySolo) {
           return (t.solo && !t.mute) ? t.vol : 0;
@@ -1002,46 +1282,57 @@ if (btnExportWav) {
         }
       }
 
-      const musicGainVal = getEffectiveGain(tracks.music);
-      const drumsGainVal = getEffectiveGain(tracks.drums);
+      // 3. Renderizar las pistas de audio (Vocals, Other, Bass, Drums)
+      const stemBuffers = {
+        vocals: vocalsBuffer,
+        other: otherBuffer,
+        bass: bassBuffer,
+        drums: drumsBuffer
+      };
+
+      for (const key in stemBuffers) {
+        const buf = stemBuffers[key];
+        const gainVal = getEffectiveGain(tracks[key]);
+        if (gainVal > 0 && buf) {
+          const source = offlineCtx.createBufferSource();
+          source.buffer = buf;
+          const gNode = offlineCtx.createGain();
+          gNode.gain.setValueAtTime(gainVal, 0);
+          source.connect(gNode);
+          gNode.connect(offlineCtx.destination);
+          source.start(audioStartDelay);
+        }
+      }
+
       const metroGainVal = getEffectiveGain(tracks.metronome);
 
-      // 3. Pista de Música
-      if (musicGainVal > 0 && musicBuffer) {
-        const musicSource = offlineCtx.createBufferSource();
-        musicSource.buffer = musicBuffer;
-        const musicGain = offlineCtx.createGain();
-        musicGain.gain.setValueAtTime(musicGainVal, 0);
-        musicSource.connect(musicGain);
-        musicGain.connect(offlineCtx.destination);
-        musicSource.start(0);
-      }
-
-      // 4. Pista de Batería
-      if (drumsGainVal > 0 && drumsBuffer) {
-        const drumsSource = offlineCtx.createBufferSource();
-        drumsSource.buffer = drumsBuffer;
-        const drumsGain = offlineCtx.createGain();
-        drumsGain.gain.setValueAtTime(drumsGainVal, 0);
-        drumsSource.connect(drumsGain);
-        drumsGain.connect(offlineCtx.destination);
-        drumsSource.start(0);
-      }
-
-      // 5. Metrónomo sintetizado idéntico a la reproducción
+      // 5. Metrónomo sintetizado: Cuenta Previa + Pista
       if (metroGainVal > 0 && currentBPM > 0) {
         const metroMasterGain = offlineCtx.createGain();
         metroMasterGain.gain.setValueAtTime(metroGainVal, 0);
         metroMasterGain.connect(offlineCtx.destination);
 
-        const secondsPerBeat = 60.0 / currentBPM;
-        let beatTime = currentOffset;
+        // A. Clics de la cuenta previa (1, 2, 3, 4...)
+        if (countInMeasuresVal > 0) {
+          const minK = effOffset < 0 ? 0 : 1;
+          for (let k = totalCountBeats; k >= minK; k--) {
+            const clickTime = audioStartDelay + effOffset - k * secondsPerBeat;
+            const isAccent = ((totalCountBeats - k) % 4 === 0);
+            if (clickTime >= 0) {
+              scheduleOfflineClick(offlineCtx, metroMasterGain, clickTime, isAccent, metronomeSound.value);
+            }
+          }
+        }
+
+        // B. Clics durante la canción
+        let beatTime = effOffset;
         let index = 0;
 
         while (beatTime < songDuration) {
           if (beatTime >= 0) {
             const isAccent = (index % 4 === 0);
-            scheduleOfflineClick(offlineCtx, metroMasterGain, beatTime, isAccent, metronomeSound.value);
+            const clickTime = audioStartDelay + beatTime;
+            scheduleOfflineClick(offlineCtx, metroMasterGain, clickTime, isAccent, metronomeSound.value);
           }
           beatTime += secondsPerBeat;
           index++;
@@ -1055,26 +1346,51 @@ if (btnExportWav) {
       const wavArrayBuffer = encodeWAV(renderedAudioBuffer);
       const blob = new Blob([wavArrayBuffer], { type: 'audio/wav' });
 
-      // 8. Disparar descarga en el navegador
+      // Generar nombre de archivo seguro
       const safeTitle = (songTitleStr || 'Pista').replace(/[^a-zA-Z0-9_\-\s]/g, '').trim().replace(/\s+/g, '_');
       const filename = `${safeTitle}_drum_practice_${Math.round(currentBPM)}bpm.wav`;
 
-      const downloadUrl = URL.createObjectURL(blob);
-      const downloadLink = document.createElement('a');
-      downloadLink.href = downloadUrl;
-      downloadLink.download = filename;
-      document.body.appendChild(downloadLink);
-      downloadLink.click();
-      
-      setTimeout(() => {
-        document.body.removeChild(downloadLink);
-        URL.revokeObjectURL(downloadUrl);
-      }, 2000);
+      // 8. Guardar archivo en la carpeta Descargas del usuario
+      let savedPath = null;
+      try {
+        const formData = new FormData();
+        formData.append('file', blob, filename);
+        const saveRes = await fetch(getBackendUrl('/api/save_mix'), {
+          method: 'POST',
+          body: formData
+        });
+        if (saveRes.ok) {
+          const saveJson = await saveRes.json();
+          savedPath = saveJson.saved_path;
+        }
+      } catch (saveErr) {
+        console.warn("Fallo guardado en backend, usando fallback de navegador:", saveErr);
+      }
+
+      // Fallback para navegador web estándar si el backend no respondió
+      if (!savedPath) {
+        const downloadUrl = URL.createObjectURL(blob);
+        const downloadLink = document.createElement('a');
+        downloadLink.href = downloadUrl;
+        downloadLink.download = filename;
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        
+        setTimeout(() => {
+          document.body.removeChild(downloadLink);
+          URL.revokeObjectURL(downloadUrl);
+        }, 2000);
+      }
 
       btnExportWav.innerHTML = `
         <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
         <span>¡Guardado!</span>
       `;
+
+      if (savedPath) {
+        alert(`¡Mezcla guardada exitosamente!\n\n📁 Archivo: ${savedPath}`);
+      }
+
       setTimeout(() => {
         btnExportWav.disabled = false;
         btnExportWav.innerHTML = originalHtml;

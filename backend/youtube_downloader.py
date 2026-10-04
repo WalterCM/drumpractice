@@ -16,8 +16,14 @@ def download_youtube_audio(youtube_url: str, output_dir: str) -> tuple:
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
         
+    ffmpeg_loc = os.environ.get("FFMPEG_PATH")
+    if not ffmpeg_loc:
+        import shutil
+        ffmpeg_loc = shutil.which("ffmpeg")
+        
     ydl_opts = {
         'format': 'bestaudio/best',
+        'noplaylist': True,
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'wav',
@@ -25,6 +31,7 @@ def download_youtube_audio(youtube_url: str, output_dir: str) -> tuple:
         }],
         # Usamos el título del video como nombre de archivo
         'outtmpl': os.path.join(output_dir, '%(title)s.%(ext)s'),
+        'ffmpeg_location': ffmpeg_loc if ffmpeg_loc else None,
         'quiet': False,
         'no_warnings': False,
         'nocheckcertificate': True,
@@ -43,6 +50,8 @@ def download_youtube_audio(youtube_url: str, output_dir: str) -> tuple:
     
     with YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(youtube_url, download=True)
+        if 'entries' in info and len(info['entries']) > 0:
+            info = info['entries'][0]
         title = info.get('title', 'audio_track')
         filename = ydl.prepare_filename(info)
         wav_filename = os.path.splitext(filename)[0] + '.wav'

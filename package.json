@@ -1,0 +1,14 @@
+{
+  "name": "drum-practice",
+  "version": "1.0.0",
+  "description": "Drum Practice Studio - DAW & Drum Separator",
+  "scripts": {
+    "start": "tauri dev",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "dev:backend": "backend/venv/bin/python backend/server_entry.py"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}

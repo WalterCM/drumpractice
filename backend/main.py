@@ -1,4 +1,5 @@
 import os
+import urllib.parse
 import uvicorn
 import asyncio
 import shutil
@@ -22,13 +23,36 @@ app.add_middleware(
 
 # Inicializar el procesador de audio en la carpeta de datos
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(BASE_DIR, "data")
+DATA_DIR = os.environ.get("DRUM_PRACTICE_DATA_DIR") or os.path.join(BASE_DIR, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
 processor = AudioProcessor(data_dir=DATA_DIR)
 
 # Endpoint de comprobación de salud de la API
 @app.get("/api/health")
 def health_check():
     return {"status": "running", "service": "Drum Practice Backend"}
+
+# Endpoint para guardar la mezcla renderizada en la carpeta de Descargas del usuario
+@app.post("/api/save_mix")
+async def save_mix(file: UploadFile = File(...)):
+    home = os.path.expanduser("~")
+    downloads_dir = os.path.join(home, "Downloads")
+    if not os.path.exists(downloads_dir):
+        downloads_es = os.path.join(home, "Descargas")
+        downloads_dir = downloads_es if os.path.exists(downloads_es) else home
+        
+    os.makedirs(downloads_dir, exist_ok=True)
+    filename = file.filename or "drum_practice_mix.wav"
+    dest_path = os.path.join(downloads_dir, filename)
+    
+    with open(dest_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+        
+    return {
+        "status": "success",
+        "saved_path": dest_path,
+        "message": f"Archivo guardado en: {dest_path}"
+    }
 
 # Endpoint para procesar archivos de audio subidos localmente (MP3/WAV)
 @app.post("/api/upload")
@@ -46,8 +70,10 @@ async def upload_audio_file(file: UploadFile = File(...)):
         )
         
     web_original = f"/media/downloads/{os.path.basename(result['original_audio_path'])}"
-    web_no_drums = f"/media/processed/{os.path.basename(result['no_drums_audio_path'])}"
-    web_drums = f"/media/processed/{os.path.basename(result['drums_audio_path'])}" if result['drums_audio_path'] else None
+    web_vocals = f"/media/processed/{os.path.basename(result['vocals_audio_path'])}" if result.get('vocals_audio_path') else None
+    web_other = f"/media/processed/{os.path.basename(result['other_audio_path'])}" if result.get('other_audio_path') else None
+    web_bass = f"/media/processed/{os.path.basename(result['bass_audio_path'])}" if result.get('bass_audio_path') else None
+    web_drums = f"/media/processed/{os.path.basename(result['drums_audio_path'])}" if result.get('drums_audio_path') else None
     
     return {
         "status": "completed",
@@ -55,7 +81,9 @@ async def upload_audio_file(file: UploadFile = File(...)):
             "id": result["id"],
             "title": result["title"],
             "original_url": web_original,
-            "no_drums_url": web_no_drums,
+            "vocals_url": web_vocals,
+            "other_url": web_other,
+            "bass_url": web_bass,
             "drums_url": web_drums,
             "bpm": result["bpm"],
             "beats": result["beats"]
@@ -94,14 +122,18 @@ async def websocket_endpoint(websocket: WebSocket):
             )
             
         web_original = f"/media/downloads/{os.path.basename(result['original_audio_path'])}"
-        web_no_drums = f"/media/processed/{os.path.basename(result['no_drums_audio_path'])}"
-        web_drums = f"/media/processed/{os.path.basename(result['drums_audio_path'])}" if result['drums_audio_path'] else None
+        web_vocals = f"/media/processed/{os.path.basename(result['vocals_audio_path'])}" if result.get('vocals_audio_path') else None
+        web_other = f"/media/processed/{os.path.basename(result['other_audio_path'])}" if result.get('other_audio_path') else None
+        web_bass = f"/media/processed/{os.path.basename(result['bass_audio_path'])}" if result.get('bass_audio_path') else None
+        web_drums = f"/media/processed/{os.path.basename(result['drums_audio_path'])}" if result.get('drums_audio_path') else None
         
         final_result = {
             "id": result["id"],
             "title": result["title"],
             "original_url": web_original,
-            "no_drums_url": web_no_drums,
+            "vocals_url": web_vocals,
+            "other_url": web_other,
+            "bass_url": web_bass,
             "drums_url": web_drums,
             "bpm": result["bpm"],
             "beats": result["beats"]
@@ -135,9 +167,25 @@ async def websocket_endpoint(websocket: WebSocket):
 # Servir archivos estáticos de audio
 app.mount("/media", StaticFiles(directory=DATA_DIR), name="media")
 
-# Servir la interfaz web estáticamente en la raíz (después de todos los endpoints de API)
-FRONTEND_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "frontend"))
-app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
+# Servir la interfaz web estáticamente en la raíz si existe la carpeta
+FRONTEND_DIR = os.environ.get("DRUM_PRACTICE_FRONTEND_DIR") or os.path.abspath(os.path.join(BASE_DIR, "..", "frontend"))
+if os.path.exists(FRONTEND_DIR):
+    app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
 
 if __name__ == '__main__':
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
+    import socket
+    port = int(os.environ.get("PORT", 8000))
+    # Comprobar si está ocupado
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        if s.connect_ex(('127.0.0.1', port)) == 0:
+            # Buscar siguiente puerto disponible
+            for p in range(port + 1, port + 50):
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s2:
+                    try:
+                        s2.bind(('127.0.0.1', p))
+                        port = p
+                        break
+                    except OSError:
+                        continue
+    print(f"Iniciando Drum Practice Backend en http://127.0.0.1:{port}")
+    uvicorn.run(app, host="127.0.0.1", port=port, reload=False)

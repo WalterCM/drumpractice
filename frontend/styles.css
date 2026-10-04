@@ -350,6 +350,7 @@ body {
   justify-content: space-between;
   padding: 0.6rem 1.25rem;
   gap: 1rem;
+  flex-wrap: wrap;
 }
 
 .transport-group {
@@ -585,6 +586,61 @@ body {
   color: var(--text-dim);
 }
 
+/* Beat Shift Stepper */
+.beat-shift-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.beat-shift-val-text {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--accent-orange);
+  min-width: 60px;
+  text-align: center;
+}
+
+/* Count-In Box */
+.count-in-box {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.count-in-title {
+  font-size: 0.65rem;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+}
+
+.count-in-select {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--card-border);
+  color: var(--text-main);
+  padding: 0.35rem 0.6rem;
+  border-radius: 6px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+}
+
+.count-in-select:hover, .count-in-select:focus {
+  border-color: var(--accent-orange);
+  background: rgba(255, 87, 34, 0.08);
+}
+
+.count-in-hint {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+}
+
 .project-actions-group {
   display: flex;
   align-items: center;
@@ -722,11 +778,33 @@ body {
   min-width: 250px;
   background: rgba(15, 15, 20, 0.85);
   border-right: 1px solid var(--card-border);
+  border-left: 3px solid var(--card-border);
   padding: 0.75rem 1rem;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   z-index: 5;
+  transition: var(--transition-smooth);
+}
+
+.track-header.header-vocals {
+  border-left-color: #c084fc;
+}
+
+.track-header.header-other {
+  border-left-color: #06b6d4;
+}
+
+.track-header.header-bass {
+  border-left-color: #fbbf24;
+}
+
+.track-header.header-drums {
+  border-left-color: #f43f5e;
+}
+
+.track-header.highlight-header {
+  border-left-color: var(--accent-orange);
 }
 
 .track-title-row {

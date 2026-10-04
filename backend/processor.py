@@ -2,7 +2,7 @@ import os
 import shutil
 import json
 from youtube_downloader import download_youtube_audio
-from audio_separator import separate_drums
+from audio_separator import separate_stems
 from tempo_detector import analyze_tempo
 
 class AudioProcessor:
@@ -25,7 +25,7 @@ class AudioProcessor:
         """
         Orquesta el proceso completo para un enlace de YouTube:
         1. Descarga el audio original.
-        2. Remueve la batería usando IA (Demucs).
+        2. Separa el audio en 4 pistas (Voz, Otros/Música, Bajo, Batería) usando IA (Demucs).
         3. Analiza el BPM y los beats usando Librosa.
         
         Retorna un diccionario con las rutas de los archivos generados y los datos de tempo.
@@ -38,7 +38,7 @@ class AudioProcessor:
             original_wav, video_title = download_youtube_audio(youtube_url, self.downloads_dir)
             base_name = os.path.splitext(os.path.basename(original_wav))[0]
             
-            # Verificar si ya existe en caché procesado
+            # Verificar si ya existe en caché procesado con 4 stems
             meta_path = os.path.join(self.processed_dir, f"{base_name}_meta.json")
             if os.path.exists(meta_path):
                 if progress_callback:
@@ -46,7 +46,7 @@ class AudioProcessor:
                 try:
                     with open(meta_path, 'r', encoding='utf-8') as f:
                         cached_data = json.load(f)
-                    if os.path.exists(cached_data.get("no_drums_audio_path", "")):
+                    if cached_data.get("vocals_audio_path") and os.path.exists(cached_data.get("vocals_audio_path", "")):
                         if progress_callback:
                             progress_callback("¡Procesamiento completo!", 100)
                         return cached_data
@@ -54,19 +54,16 @@ class AudioProcessor:
                     print(f"Error al leer caché: {cache_err}. Se procesará nuevamente.")
             
             if progress_callback:
-                progress_callback(f"Audio descargado ({video_title}). Separando batería con IA...", 30)
+                progress_callback(f"Audio descargado ({video_title}). Separando pistas (Voz, Música, Bajo, Batería) con IA...", 30)
                 
-            # 2. Separar Batería
-            # Esto genera {base_name}_no_drums.wav y {base_name}_drums.wav en self.processed_dir
-            no_drums_wav = separate_drums(original_wav, self.processed_dir)
-            drums_wav = os.path.join(self.processed_dir, f"{base_name}_drums.wav")
+            # 2. Separar Stems (Voz, Otros, Bajo, Batería)
+            stems = separate_stems(original_wav, self.processed_dir)
             
             if progress_callback:
-                progress_callback("Audio separado. Analizando BPM y ritmo sobre la pista de batería...", 80)
+                progress_callback("Pistas separadas. Analizando BPM y ritmo sobre la pista de batería...", 80)
                 
             # 3. Analizar tempo
-            # Usamos la pista de batería aislada (o el audio original si no hay batería)
-            # ya que los transitorios de ataque de bombos y cajas proporcionan el Onset Flux más nítido
+            drums_wav = stems.get("drums")
             audio_for_tempo = drums_wav if (drums_wav and os.path.exists(drums_wav)) else original_wav
             tempo_data = analyze_tempo(audio_for_tempo)
             
@@ -75,8 +72,10 @@ class AudioProcessor:
                 "id": base_name,
                 "title": video_title,
                 "original_audio_path": original_wav,
-                "no_drums_audio_path": no_drums_wav,
-                "drums_audio_path": drums_wav if os.path.exists(drums_wav) else None,
+                "vocals_audio_path": stems.get("vocals"),
+                "other_audio_path": stems.get("other"),
+                "bass_audio_path": stems.get("bass"),
+                "drums_audio_path": stems.get("drums"),
                 "bpm": tempo_data["bpm"],
                 "offset": tempo_data.get("offset", 0.0),
                 "beats": tempo_data["beats"]
@@ -101,16 +100,16 @@ class AudioProcessor:
     def process_audio_file(self, audio_file_path: str, progress_callback=None) -> dict:
         """
         Procesa un archivo de audio local directamente:
-        1. Remueve la batería usando IA (Demucs).
+        1. Separa el audio en 4 pistas usando IA (Demucs).
         2. Analiza el BPM y los beats usando Librosa.
         """
         try:
             base_name = os.path.splitext(os.path.basename(audio_file_path))[0]
             if progress_callback:
-                progress_callback("Separando batería con IA...", 30)
+                progress_callback("Separando pistas (Voz, Música, Bajo, Batería) con IA...", 30)
                 
-            no_drums_wav = separate_drums(audio_file_path, self.processed_dir)
-            drums_wav = os.path.join(self.processed_dir, f"{base_name}_drums.wav")
+            stems = separate_stems(audio_file_path, self.processed_dir)
+            drums_wav = stems.get("drums")
             
             audio_for_tempo = drums_wav if (drums_wav and os.path.exists(drums_wav)) else audio_file_path
             tempo_data = analyze_tempo(audio_for_tempo)
@@ -119,8 +118,10 @@ class AudioProcessor:
                 "id": base_name,
                 "title": base_name,
                 "original_audio_path": audio_file_path,
-                "no_drums_audio_path": no_drums_wav,
-                "drums_audio_path": drums_wav if os.path.exists(drums_wav) else None,
+                "vocals_audio_path": stems.get("vocals"),
+                "other_audio_path": stems.get("other"),
+                "bass_audio_path": stems.get("bass"),
+                "drums_audio_path": stems.get("drums"),
                 "bpm": tempo_data["bpm"],
                 "offset": tempo_data.get("offset", 0.0),
                 "beats": tempo_data["beats"]
@@ -138,6 +139,8 @@ class AudioProcessor:
             print(f"Error durante el procesamiento del archivo local: {e}")
             if progress_callback:
                 progress_callback(f"Error: {str(e)}", -1)
+            raise e
+
             raise e
 
 if __name__ == '__main__':

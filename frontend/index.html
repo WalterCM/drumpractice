@@ -121,7 +121,23 @@
               <input type="range" id="offset-slider" min="-1000" max="1000" step="1" value="0" />
               <span id="val-offset" class="offset-val-text">0 ms</span>
             </div>
+            <div class="beat-shift-row">
+              <button class="bpm-mini-btn" id="btn-beat-shift-minus" title="Desplazar 1 beat a la izquierda">-1 Beat</button>
+              <span id="val-beat-shift" class="beat-shift-val-text">0 Beats</span>
+              <button class="bpm-mini-btn" id="btn-beat-shift-plus" title="Desplazar 1 beat a la derecha">+1 Beat</button>
+            </div>
             <span class="drag-hint">💡 Arrastra la pista del metrónomo para sincronizar</span>
+          </div>
+
+          <!-- Selector de Cuenta Previa (Count-in) -->
+          <div class="count-in-box">
+            <span class="count-in-title">CUENTA PREVIA</span>
+            <select id="count-in-select" class="count-in-select" title="Compases de metrónomo previo antes de que empiece la canción">
+              <option value="1" selected>1 Compás (4 tiempos)</option>
+              <option value="2">2 Compases (8 tiempos)</option>
+              <option value="0">Sin cuenta (Directo)</option>
+            </select>
+            <span class="count-in-hint">⏱️ Espacio previo para entrar</span>
           </div>
 
           <!-- Acciones de Proyecto: Exportar WAV & Nueva Pista -->
@@ -153,31 +169,75 @@
           <!-- Contenedor de Pistas -->
           <div class="tracks-list" id="tracks-list">
             
-            <!-- TRACK 1: MÚSICA (SIN BATERÍA) -->
-            <div class="track-row" id="track-music">
-              <div class="track-header">
+            <!-- TRACK 1: VOZ -->
+            <div class="track-row" id="track-vocals">
+              <div class="track-header header-vocals">
                 <div class="track-title-row">
-                  <span class="track-name">🎵 Música (Sin Batería)</span>
+                  <span class="track-name">🎤 Voz</span>
                 </div>
                 <div class="track-controls-row">
                   <div class="track-btn-group">
-                    <button class="track-btn btn-mute" id="mute-music" title="Mute">M</button>
-                    <button class="track-btn btn-solo" id="solo-music" title="Solo">S</button>
+                    <button class="track-btn btn-mute" id="mute-vocals" title="Mute">M</button>
+                    <button class="track-btn btn-solo" id="solo-vocals" title="Solo">S</button>
                   </div>
                   <div class="track-vol-slider-wrap">
-                    <input type="range" class="track-vol-slider" id="vol-music" min="0" max="100" value="80" />
-                    <span class="vol-label" id="val-music">80%</span>
+                    <input type="range" class="track-vol-slider" id="vol-vocals" min="0" max="100" value="80" />
+                    <span class="vol-label" id="val-vocals">80%</span>
                   </div>
                 </div>
               </div>
-              <div class="track-lane" id="lane-music">
-                <canvas id="canvas-music" class="waveform-canvas"></canvas>
+              <div class="track-lane" id="lane-vocals">
+                <canvas id="canvas-vocals" class="waveform-canvas"></canvas>
               </div>
             </div>
 
-            <!-- TRACK 2: BATERÍA ORIGINAL (AISLADA) -->
+            <!-- TRACK 2: MÚSICA / OTROS -->
+            <div class="track-row" id="track-other">
+              <div class="track-header header-other">
+                <div class="track-title-row">
+                  <span class="track-name">🎵 Música / Otros</span>
+                </div>
+                <div class="track-controls-row">
+                  <div class="track-btn-group">
+                    <button class="track-btn btn-mute" id="mute-other" title="Mute">M</button>
+                    <button class="track-btn btn-solo" id="solo-other" title="Solo">S</button>
+                  </div>
+                  <div class="track-vol-slider-wrap">
+                    <input type="range" class="track-vol-slider" id="vol-other" min="0" max="100" value="80" />
+                    <span class="vol-label" id="val-other">80%</span>
+                  </div>
+                </div>
+              </div>
+              <div class="track-lane" id="lane-other">
+                <canvas id="canvas-other" class="waveform-canvas"></canvas>
+              </div>
+            </div>
+
+            <!-- TRACK 3: BAJO -->
+            <div class="track-row" id="track-bass">
+              <div class="track-header header-bass">
+                <div class="track-title-row">
+                  <span class="track-name">🎸 Bajo</span>
+                </div>
+                <div class="track-controls-row">
+                  <div class="track-btn-group">
+                    <button class="track-btn btn-mute" id="mute-bass" title="Mute">M</button>
+                    <button class="track-btn btn-solo" id="solo-bass" title="Solo">S</button>
+                  </div>
+                  <div class="track-vol-slider-wrap">
+                    <input type="range" class="track-vol-slider" id="vol-bass" min="0" max="100" value="80" />
+                    <span class="vol-label" id="val-bass">80%</span>
+                  </div>
+                </div>
+              </div>
+              <div class="track-lane" id="lane-bass">
+                <canvas id="canvas-bass" class="waveform-canvas"></canvas>
+              </div>
+            </div>
+
+            <!-- TRACK 4: BATERÍA ORIGINAL -->
             <div class="track-row" id="track-drums">
-              <div class="track-header">
+              <div class="track-header header-drums">
                 <div class="track-title-row">
                   <span class="track-name">🥁 Batería Original</span>
                 </div>
@@ -197,7 +257,7 @@
               </div>
             </div>
 
-            <!-- TRACK 3: METRÓNOMO & BEATS (ARRASTRABLE) -->
+            <!-- TRACK 5: METRÓNOMO & BEATS (ARRASTRABLE) -->
             <div class="track-row metronome-track" id="track-metronome">
               <div class="track-header highlight-header">
                 <div class="track-title-row">
